@@ -1,4 +1,6 @@
 ﻿using HtmlAgilityPack;
+using MongoDB.Driver;
+using MongoDB.Bson;
 using Newtonsoft.Json;
 using Web_Scraper_Recetas.Models;
 
@@ -13,12 +15,43 @@ namespace Web_Scraper_Recetas.Scraper
         {
             int page = 1;
             bool hasNextPage = true;
-            while (page <= 3)
+            while (page <= 10)
             {
-                hasNextPage = await ScrapMenu("https://cookpad.com/mx/buscar/listas?page=1");
+                hasNextPage = await ScrapMenu($"https://cookpad.com/mx/buscar/listas?page={page}");
                 page++;
             }
+            //await InsertRecetasToMongo(recetas);
+
             return recetas;
+        }
+
+        // Método para insertar recetas en MongoDB
+        public static async Task InsertRecetasToMongo(List<Receta> recetas)
+        {
+            try
+            {
+                // Cadena de conexión a MongoDB Atlas
+                string connectionString = "mongodb+srv://user:<db_password>@hextechit.nxlay.mongodb.net/?retryWrites=true&w=majority&appName=HextechIt";
+
+                // Reemplaza "<db_password>" con la contraseña de tu base de datos
+                connectionString = connectionString.Replace("<db_password>", "contrasena123");
+
+                // Crear el cliente de MongoDB
+                var client = new MongoClient(connectionString);
+
+                // Obtener la base de datos y la colección
+                var database = client.GetDatabase("nombreBaseDatos");
+                var collection = database.GetCollection<Receta>("recetas");
+
+                // Insertar todas las recetas en la colección
+                await collection.InsertManyAsync(recetas);
+
+                Console.WriteLine("Recetas insertadas correctamente en MongoDB.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error al insertar en MongoDB: {ex.Message}");
+            }
         }
 
         public static async Task<bool> ScrapMenu(string url)
@@ -55,29 +88,39 @@ namespace Web_Scraper_Recetas.Scraper
 
         public static async Task<string> ObtenerImagenes(string url)
         {
-            var client = new HttpClient();
-            var request = new HttpRequestMessage(HttpMethod.Get, "https://cookpad.com" + url);
-            var response = await client.SendAsync(request);
-            if (response.EnsureSuccessStatusCode().IsSuccessStatusCode)
+            if (url.Contains("images")) return "N/A";
+            try
             {
-
-                string htmldoc = await response.Content.ReadAsStringAsync();
-                HtmlDocument document = new HtmlDocument();
-                document.LoadHtml(htmldoc);
-
-                var body = document.DocumentNode.Descendants("picture").FirstOrDefault();
-
-                if (body != null)
+                var client = new HttpClient();
+                var request = new HttpRequestMessage(HttpMethod.Get, "https://cookpad.com" + url);
+                var response = await client.SendAsync(request);
+                if (response.EnsureSuccessStatusCode().IsSuccessStatusCode)
                 {
-                    var img = body.Descendants("img").FirstOrDefault();
-                    string imgUrl = img.GetAttributeValue("src", string.Empty).ToString();
 
-                    return imgUrl;
-                } else
-                {
-                    return "N/A";
+                    string htmldoc = await response.Content.ReadAsStringAsync();
+                    HtmlDocument document = new HtmlDocument();
+                    document.LoadHtml(htmldoc);
+
+                    var body = document.DocumentNode.Descendants("picture").FirstOrDefault();
+
+                    if (body != null)
+                    {
+                        var img = body.Descendants("img").FirstOrDefault();
+                        string imgUrl = img.GetAttributeValue("src", string.Empty).ToString();
+
+                        return imgUrl;
+                    }
+                    else
+                    {
+                        return "N/A";
+                    }
+
                 }
 
+            } catch (Exception e)
+            {
+                Console.WriteLine(e.Message);
+                return "N/A";
             }
             return "N/A";
         }
@@ -140,15 +183,17 @@ namespace Web_Scraper_Recetas.Scraper
                         var imagenes = item.Descendants("a").ToList();
 
                         foreach (var item1 in imagenes)
-                        {
-                            var urlImage = item1.GetAttributeValue("href", string.Empty);
-                            if (urlImage != null)
+                        {   
+                            var img = item1.Descendants("img").FirstOrDefault();
+                            if (img == null) continue;
+                            var urlImage = img.GetAttributeValue("src", string.Empty);
+                            if (urlImage != null && urlImage != string.Empty)
                             {
-                                string cadena = await ObtenerImagenes(urlImage);
-                                if (cadena != "N/A")
-                                {
-                                    Imagenes.Add(cadena);
-                                }
+                                //string cadena = await ObtenerImagenes(urlImage);
+                                //if (urlImage != "N/A")
+                                //{
+                                    Imagenes.Add(urlImage);
+                                //}
                             }
                         }
 
@@ -166,9 +211,9 @@ namespace Web_Scraper_Recetas.Scraper
                     portions = cantidadText,
                     InfoAditional = JsonConvert.SerializeObject(pasos),
                     Imagenes = JsonConvert.SerializeObject(Imagenes),
+                    NumberIngredients = ingredientes != null ? ingredientes.Count : 0
                 });
-
-
+                id++;
             }
             else
             {
