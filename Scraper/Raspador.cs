@@ -20,7 +20,7 @@ namespace Web_Scraper_Recetas.Scraper
                 hasNextPage = await ScrapMenu($"https://cookpad.com/mx/buscar/listas?page={page}");
                 page++;
             }
-            //await InsertRecetasToMongo(recetas);
+            await InsertRecetasToMongo(recetas);
 
             return recetas;
         }
